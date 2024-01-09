@@ -24,7 +24,8 @@ const outputDirectory = argv.outdir;
 
 // Function to sanitize the video title
 function sanitizeTitle(title) {
-  return title.replace(/[\/\\|:]/g, '_'); // Replace /, \, |, and : with underscores
+  // Replace special characters with underscores
+  return title.replace(/[\/\\|:?"<>*]/g, '_');
 }
 
 async function downloadVideoWithRetry(video, outputDirectory, retryCount = 3) {
