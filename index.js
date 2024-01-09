@@ -1,14 +1,26 @@
+const fs = require('fs');
+const yargs = require('yargs');
 const ytdl = require('ytdl-core');
 const ytpl = require('ytpl');
-const fs = require('fs');
 const path = require('path');
-const ProgressBar = require('progress');
 
-const playlistUrls = [
-  'https://www.youtube.com/watch?v=YOHopl2xPj0&list=PLWmVt_rgUljE8rhnsS8Hn70oAhwldkGi2',
-];
+// Parse command line arguments
+const argv = yargs
+  .option('input', {
+    alias: 'i',
+    describe: 'Input file containing playlist URLs (each URL on a new line)',
+    demandOption: true,
+    type: 'string',
+  })
+  .option('outdir', {
+    alias: 'o',
+    describe: 'Output directory for downloaded music',
+    demandOption: true,
+    type: 'string',
+  }).argv;
 
-const outputDirectory = './music';
+const inputFilePath = argv.input;
+const outputDirectory = argv.outdir;
 
 // Function to sanitize the video title
 function sanitizeTitle(title) {
@@ -40,20 +52,8 @@ async function downloadVideoWithRetry(video, outputDirectory, retryCount = 3) {
         audioStream.on('response', (res) => {
           totalBytes = parseInt(res.headers['content-length'], 10);
 
-          // Create a progress bar
-          const progressBar = new ProgressBar(
-            `${sanitizedTitle} [:bar] :percent Elapsed: :elapsed s - :speed/Mbs`,
-            {
-              complete: '=',
-              incomplete: ' ',
-              width: 20,
-              total: totalBytes,
-              clear: true, // Print on a new line for each song
-              renderThrottle: 100, // Minimum time between updates in milliseconds
-            }
-          );
-
           let startTime = Date.now();
+          let lastLoggedPercentage = -1;
 
           // Download the audio stream and write to the file
           const fileStream = fs.createWriteStream(outputFilePath);
@@ -69,20 +69,28 @@ async function downloadVideoWithRetry(video, outputDirectory, retryCount = 3) {
 
             const speed = downloadedBytes / elapsedSeconds / 1024; // Mb per second
 
-            progressBar.tick(chunk.length, {
-              elapsed: elapsedSeconds.toFixed(1),
-              speed: speed.toFixed(2),
-            });
+            const percentage = (downloadedBytes / totalBytes) * 100;
+
+            // Log progress only if the percentage has changed
+            if (Math.floor(percentage) !== lastLoggedPercentage) {
+              lastLoggedPercentage = Math.floor(percentage);
+              console.clear();
+              console.log(
+                `${sanitizedTitle} [${'='.repeat(
+                  Math.floor(percentage / 2)
+                )}>${' '.repeat(
+                  50 - Math.floor(percentage / 2)
+                )}] ${percentage.toFixed(2)}% Elapsed: ${elapsedSeconds.toFixed(
+                  1
+                )} s - ${speed.toFixed(2)} Mbs`
+              );
+            }
           });
 
           fileStream.on('finish', () => {
-            progressBar.terminate(); // Terminate the progress bar
-            console.log(`\nDownload complete: ${sanitizedTitle}\n`);
+            console.clear();
+            console.log(`Download complete: ${sanitizedTitle}\n`);
             resolve(); // Resolve the promise when the download is complete
-          });
-
-          fileStream.on('error', (error) => {
-            reject(error);
           });
         });
 
@@ -144,12 +152,22 @@ async function downloadPlaylistAudioWithRetry(playlistUrl, outputDirectory) {
   }
 }
 
-// Download each playlist in the array sequentially
-async function downloadAllPlaylists(playlists, outputDirectory) {
-  for (const playlistUrl of playlists) {
+async function downloadAllPlaylistsFromFile(inputFilePath, outputDirectory) {
+  const playlistUrls = [];
+
+  // Read the playlist URLs from the input file
+  const data = fs.readFileSync(inputFilePath, 'utf-8');
+  const lines = data.split(/\r?\n/);
+
+  for (const line of lines) {
+    playlistUrls.push(line);
+  }
+
+  // Download each playlist in the array sequentially
+  for (const playlistUrl of playlistUrls) {
     await downloadPlaylistAudioWithRetry(playlistUrl, outputDirectory);
   }
 }
 
 // Replace 'YOUR_OUTPUT_DIRECTORY' with the desired output directory
-downloadAllPlaylists(playlistUrls, outputDirectory);
+downloadAllPlaylistsFromFile(inputFilePath, outputDirectory);
